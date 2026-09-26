@@ -20,7 +20,7 @@ from torchtitan.components.optimizer import (
     LRSchedulersContainer,
     OptimizersContainer,
 )
-from torchtitan.config import CompileConfig, DebugConfig, TrainingConfig
+from torchtitan.config import DebugConfig, LocalCompileConfig, TrainingConfig
 from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.distributed.activation_checkpoint import SelectiveAC
 from torchtitan.hf_datasets.text_datasets import ChatProcessor, DATASETS
@@ -79,7 +79,7 @@ def transformers_modeling_backend_debugmodel_compile(
     seq_len: int = DEFAULT_DEBUG_MODEL_SEQ_LEN,
 ) -> TransformersBackendConfig:
     config = transformers_modeling_backend_debugmodel(seq_len=seq_len)
-    config.compile = CompileConfig()
+    config.compile = LocalCompileConfig()
     return config
 
 
@@ -123,7 +123,7 @@ def transformers_modeling_backend_debugmodel_moe_compile(
     seq_len: int = DEFAULT_DEBUG_MODEL_SEQ_LEN,
 ) -> TransformersBackendConfig:
     config = transformers_modeling_backend_debugmodel_moe(seq_len=seq_len)
-    config.compile = CompileConfig()
+    config.compile = LocalCompileConfig()
     return config
 
 

@@ -23,7 +23,7 @@ from torchtitan.components.data.types import TrainingMicrobatch
 from torchtitan.components.tokenizer import BaseTokenizer, HuggingFaceTokenizer
 from torchtitan.components.validate import BaseValidator, Validator
 from torchtitan.config import Configurable
-from torchtitan.config.configs import CompileConfig
+from torchtitan.config.configs import LocalCompileConfig
 from torchtitan.config.override import apply_overrides
 from torchtitan.config.validation import validate_model_training_config
 from torchtitan.distributed import utils as dist_utils
@@ -73,7 +73,9 @@ class Trainer(Configurable):
             default_factory=HuggingFaceTokenizer.Config
         )
         dataloader: BaseDataLoader.Config = field(default_factory=BaseDataLoader.Config)
-        compile: Annotated[CompileConfig | None, tyro.conf.AvoidSubcommands] = None
+        compile: Annotated[
+            LocalCompileConfig | None, tyro.conf.AvoidSubcommands
+        ] = field(default_factory=LocalCompileConfig)
         validator: Annotated[Validator.Config | None, tyro.conf.AvoidSubcommands] = None
         dump_folder: str = "./outputs"
 

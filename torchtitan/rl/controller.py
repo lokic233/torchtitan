@@ -107,7 +107,7 @@ from monarch.spmd import setup_torch_elastic_env_async
 from torchtitan.components.renderer import RendererConfig
 
 from torchtitan.components.tokenizer import HuggingFaceTokenizer
-from torchtitan.config import CompileConfig, Configurable
+from torchtitan.config import Configurable, LocalCompileConfig
 from torchtitan.models.common.decoder import Decoder
 from torchtitan.observability import structured_logger as sl
 from torchtitan.rl.components.batcher import Batcher
@@ -284,7 +284,9 @@ class Controller(Configurable):
         )
         """JSONL recorder to save sampled rollouts to disk for further inspection and debugging."""
 
-        compile: Annotated[CompileConfig | None, tyro.conf.AvoidSubcommands] = None
+        compile: Annotated[
+            LocalCompileConfig | None, tyro.conf.AvoidSubcommands
+        ] = field(default_factory=LocalCompileConfig)
         """torch.compile config shared by trainer and generator."""
 
         trainer: Trainer.Config
