@@ -48,7 +48,7 @@ _FROZEN_CLI_OPTIONS = frozenset(
         "comm.trace_buf_size",
         "comm.train_timeout_seconds",
         "compile.backend",
-        "compile.components",
+        "compile.regions",
         "dataloader.build_mrope_positions",
         "dataloader.dataset",
         "dataloader.dataset_path",

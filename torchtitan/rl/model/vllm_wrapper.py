@@ -26,7 +26,7 @@ from torch.distributed.tensor import DTensor, Replicate
 from torchtitan.components.checkpointer import CheckpointManager
 from torchtitan.config import (
     apply_overrides,
-    CompileConfig,
+    LocalCompileConfig,
     OverrideConfig,
     TrainingConfig,
 )
@@ -300,7 +300,7 @@ class VLLMModelWrapper(Module):
         *,
         model_config: Decoder.Config,
         parallelism: InferenceParallelismConfig,
-        compile_config: CompileConfig | None,
+        compile_config: LocalCompileConfig | None,
         checkpointer_config: CheckpointManager.Config | None,
         vllm_config: VllmConfig,
         prefix: str = "",

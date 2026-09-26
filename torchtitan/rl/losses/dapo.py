@@ -15,7 +15,6 @@ import torch
 import tyro
 
 from torchtitan.components.loss import BaseLoss, compute_logprobs
-from torchtitan.config import CompileConfig
 from torchtitan.distributed.spmd_types import spmd_mesh_group
 
 # Clamp |log(pi_theta/pi_old)| before exp() so a large generator/trainer
@@ -63,13 +62,7 @@ class DAPOLoss(BaseLoss):
         """Full vocabulary size from the model spec, set when building RL configs.
         Leave unset for batch-invariant mode to retain the full-gather path."""
 
-    def __init__(
-        self,
-        config: Config,
-        *,
-        compile_config: CompileConfig | None = None,
-    ) -> None:
-        del compile_config
+    def __init__(self, config: Config) -> None:
         self.ratio_clip_low = config.ratio_clip_low
         self.ratio_clip_high = config.ratio_clip_high
         self.global_vocab_size = config.global_vocab_size

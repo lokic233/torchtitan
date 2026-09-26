@@ -18,7 +18,7 @@ from torchtitan.components.optimizer import (
     OptimizersContainer,
 )
 from torchtitan.components.renderer import from_renderers
-from torchtitan.config import CompileConfig, TrainingConfig
+from torchtitan.config import LocalCompileConfig, TrainingConfig
 from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.config.transform import LMHeadCastConverter
 from torchtitan.models.common.config_utils import decoder_vocab_size
@@ -94,7 +94,7 @@ def _qwen3_4b_dapo_math_config(
                 num_samples=num_validation_samples,
             ),
         ),
-        compile=CompileConfig(backend="aot_eager"),
+        compile=LocalCompileConfig(),
         rollouter=_dapo_math_rollouter_config(
             validation_dataset=validation_dataset,
             token_env=TokenEnv.Config(

@@ -24,12 +24,7 @@ from torchtitan.components.optimizer import (
     OptimizersContainer,
 )
 from torchtitan.config import Configurable, TORCH_DTYPE_MAP
-from torchtitan.config.configs import (
-    CommConfig,
-    CompileConfig,
-    DebugConfig,
-    TrainingConfig,
-)
+from torchtitan.config.configs import CommConfig, DebugConfig, TrainingConfig
 from torchtitan.config.override import OverrideConfig
 from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.distributed import ParallelismContext, utils as dist_utils
@@ -232,7 +227,7 @@ class TrainingEngine(Configurable, torch.distributed.checkpoint.stateful.Statefu
     def initialize(
         self,
         *,
-        compile_config: CompileConfig | None,
+        compile_config: Any,
         hf_assets_path: str,
         dataloader: BaseDataLoader | None = None,
         create_seed_checkpoint: bool = False,
@@ -254,12 +249,12 @@ class TrainingEngine(Configurable, torch.distributed.checkpoint.stateful.Statefu
     def _initialize_model(
         self,
         *,
-        compile_config: CompileConfig | None,
+        compile_config: Any,
         hf_assets_path: str,
         create_seed_checkpoint: bool = False,
     ) -> None:
         """Build the loss and model execution state."""
-        self.loss_fn = self.config.loss.build(compile_config=compile_config)
+        self.loss_fn = self.config.loss.build()
         if create_seed_checkpoint:
             init_device = "cpu"
             buffer_device = None
