@@ -13,13 +13,14 @@ from typing import Any
 
 import torch
 
-from torchtitan.config.configs import LocalCompileConfig
+from torchtitan.config.configs import DEFAULT_LOCAL_COMPILE_REGIONS, LocalCompileConfig
 from torchtitan.distributed.utils import is_in_batch_invariant_mode
 
 
+# Pre-register default region names so validation does not depend on model imports.
 _LOCAL_COMPILE_CALLBACKS: dict[
     str, list[Callable[[LocalCompileConfig | None], bool]]
-] = {}
+] = {name: [] for name in DEFAULT_LOCAL_COMPILE_REGIONS}
 logger = logging.getLogger(__name__)
 
 
