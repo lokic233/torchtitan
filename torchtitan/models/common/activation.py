@@ -6,13 +6,14 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 import torch.nn.functional as F
 
 from torchtitan.config.configurable import Configurable
 from torchtitan.config.function import Function
+from torchtitan.distributed.local_compile import local_compile
 
 
 class BinaryActivationFn(Function[torch.Tensor], ABC):
@@ -131,9 +132,19 @@ class SwiGLU(BinaryActivationFn):
     class Config(BinaryActivationFn.Config):
         pass
 
+    inductor_options: ClassVar[dict[str, Any]] = {
+        "wrap_inductor_compiled_regions": True,
+        "triton.cudagraphs": False,
+    }
+
     def __init__(self, config: Config) -> None:
         pass
 
+    @local_compile(
+        "swiglu",
+        batch_invariant=True,
+        options=inductor_options,
+    )
     def __call__(
         self,
         gate: torch.Tensor,
