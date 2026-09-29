@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 import torch.nn as nn
+from torch.distributed.pipelining.schedules import PipelineScheduleMulti
 
 from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.distributed import pipeline_parallel
@@ -19,6 +20,7 @@ from torchtitan.distributed.context_parallel import (
 )
 from torchtitan.distributed.pipeline_parallel import (
     _build_decoder_stage_io,
+    _build_pipeline_schedule,
     _generate_llm_fqn_per_model_part,
     _get_pipeline_metadata,
     _get_pp_rank_to_stage_indices_mapping,
@@ -567,4 +569,77 @@ def test_parallelism_config_refuses_a_split_with_layers_per_stage():
         ParallelismConfig(
             pipeline_parallel_layers_per_stage=2,
             pipeline_parallel_module_fqns_per_model_part=[["tok_embeddings"], ["norm"]],
+        )
+
+
+def test_build_pipeline_schedule_forwards_deferred_reduce_grad_wait(monkeypatch):
+    schedule_kwargs = {}
+
+    class TestFSDPModule:
+        pass
+
+    class TestSchedule(PipelineScheduleMulti):
+        def __init__(self, *args, **kwargs):
+            schedule_kwargs.update(kwargs)
+
+    monkeypatch.setattr(pipeline_parallel, "FSDPModule", TestFSDPModule)
+    monkeypatch.setattr(
+        "torchtitan.distributed.pipeline_parallel.get_schedule_class",
+        lambda _: TestSchedule,
+    )
+    parallelism = ParallelismConfig(
+        pipeline_parallel_degree=2,
+        pipeline_parallel_schedule="Interleaved1F1B",
+        pipeline_parallel_defer_reduce_grad_wait=True,
+    )
+
+    _build_pipeline_schedule(
+        parallelism=parallelism,
+        num_microbatches=4,
+        stages=[
+            SimpleNamespace(submod=TestFSDPModule()),
+            SimpleNamespace(submod=object()),
+        ],
+        loss_fn=lambda *args, **kwargs: (object(), object()),
+    )
+
+    assert schedule_kwargs["defer_reduce_grad_wait"] is True
+
+
+def test_deferred_reduce_grad_wait_requires_multi_stage_schedule():
+    parallelism = ParallelismConfig(
+        pipeline_parallel_degree=2,
+        pipeline_parallel_schedule="1F1B",
+        pipeline_parallel_defer_reduce_grad_wait=True,
+    )
+
+    with pytest.raises(ValueError, match="requires a multi-stage pipeline schedule"):
+        _build_pipeline_schedule(
+            parallelism=parallelism,
+            num_microbatches=4,
+            stages=[object()],
+            loss_fn=lambda *args, **kwargs: (object(), object()),
+        )
+
+
+def test_deferred_reduce_grad_wait_requires_fsdp_stage(monkeypatch):
+    class TestSchedule(PipelineScheduleMulti):
+        pass
+
+    monkeypatch.setattr(
+        "torchtitan.distributed.pipeline_parallel.get_schedule_class",
+        lambda _: TestSchedule,
+    )
+    parallelism = ParallelismConfig(
+        pipeline_parallel_degree=2,
+        pipeline_parallel_schedule="Interleaved1F1B",
+        pipeline_parallel_defer_reduce_grad_wait=True,
+    )
+
+    with pytest.raises(ValueError, match="requires at least one FSDP pipeline stage"):
+        _build_pipeline_schedule(
+            parallelism=parallelism,
+            num_microbatches=4,
+            stages=[SimpleNamespace(submod=object()) for _ in range(2)],
+            loss_fn=lambda *args, **kwargs: (object(), object()),
         )
