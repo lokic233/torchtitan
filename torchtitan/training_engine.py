@@ -5,7 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass, field
 from typing import Annotated, Any, cast
 
@@ -13,6 +14,7 @@ import spmd_types as spmd
 import torch
 import torch.distributed.checkpoint.stateful
 import tyro
+from torch.distributed.pipelining import PipelineStageInfo
 
 from torchtitan.components.checkpointer import BaseCheckpointManager, CheckpointManager
 from torchtitan.components.data.loader import BaseDataLoader
@@ -23,6 +25,7 @@ from torchtitan.components.optimizer import (
     LRSchedulersContainer,
     OptimizersContainer,
 )
+from torchtitan.components.runtime import TrainingRuntime
 from torchtitan.config import Configurable, TORCH_DTYPE_MAP
 from torchtitan.config.configs import (
     CommConfig,
@@ -62,6 +65,33 @@ logger = logging.getLogger(__name__)
 _NUM_CUDA_GRAPH_WARMUP_STEPS = 2
 
 
+class _TrainingRuntimeForwardContext:
+    """Compose runtime forward contexts and their GraphPP specialization key."""
+
+    def __init__(self, runtimes: list[TrainingRuntime]) -> None:
+        self.runtimes = tuple(runtimes)
+
+    @contextmanager
+    def __call__(self, info: PipelineStageInfo) -> Iterator[None]:
+        with ExitStack() as stack:
+            for runtime in self.runtimes:
+                stack.enter_context(runtime.forward_context(info))
+            yield
+
+    def graph_cache_key(self, info: PipelineStageInfo) -> tuple[object, ...] | None:
+        """Return runtime state that must remain fixed in one traced graph."""
+        keys = tuple(runtime.forward_context_key(info) for runtime in self.runtimes)
+        if all(key is None for key in keys):
+            return None
+        try:
+            hash(keys)
+        except TypeError as error:
+            raise TypeError(
+                "training runtime forward-context keys must be hashable"
+            ) from error
+        return keys
+
+
 class TrainingEngine(Configurable, torch.distributed.checkpoint.stateful.Stateful):
     """Shared distributed training engine.
 
@@ -98,8 +128,14 @@ class TrainingEngine(Configurable, torch.distributed.checkpoint.stateful.Statefu
         debug: DebugConfig = field(default_factory=DebugConfig)
         override: OverrideConfig = field(default_factory=OverrideConfig)
         loss: BaseLoss.Config = field(default_factory=BaseLoss.Config)
+        runtimes: Annotated[list[TrainingRuntime.Config], tyro.conf.Suppress] = field(
+            default_factory=list
+        )
+        """Optional runtime components initialized around model state."""
 
         def __post_init__(self) -> None:
+            for runtime_config in self.runtimes:
+                runtime_config.validate(self)
             if (
                 self.debug.spmd_typechecking
                 and self.parallelism.pipeline_parallel_degree > 1
@@ -172,6 +208,7 @@ class TrainingEngine(Configurable, torch.distributed.checkpoint.stateful.Statefu
     loss_metrics: dict[str, torch.Tensor]
     device_memory_monitor: DeviceMemoryMonitor
     model_device_mem_stats: DeviceMemStats
+    runtimes: list[TrainingRuntime]
 
     def __init__(
         self,
@@ -193,6 +230,8 @@ class TrainingEngine(Configurable, torch.distributed.checkpoint.stateful.Statefu
         self.ntokens_seen = 0
         self._num_optimizer_steps_since_cuda_graph_init = 0
         self.sdc_replayer = None
+        self.runtimes = []
+        self._runtime_stack = ExitStack()
         self.preprocess_inputs_kwargs: dict[str, Any] = {}
         self.loss_metrics = {}
         self._initialize_distributed_runtime()
@@ -321,12 +360,20 @@ class TrainingEngine(Configurable, torch.distributed.checkpoint.stateful.Statefu
             self.pp_has_first_stage = True
             self.pp_has_last_stage = True
 
-        with self.parallelism_context.activate_spmd():
-            for model_part in self.model_parts:
-                model_part.to_empty(device=init_device)
-                with torch.no_grad():
-                    model_part.init_weights(buffer_device=buffer_device)
-                model_part.train()
+        try:
+            if not create_seed_checkpoint:
+                self._prepare_training_runtimes()
+            with self.parallelism_context.activate_spmd():
+                for model_part in self.model_parts:
+                    model_part.to_empty(device=init_device)
+                    with torch.no_grad():
+                        model_part.init_weights(buffer_device=buffer_device)
+                    model_part.train()
+            for runtime in self.runtimes:
+                runtime.initialize()
+        except Exception:
+            self._close_training_runtimes()
+            raise
 
         if isinstance(self.loss_fn, ChunkedLossWrapper) and (
             not self.parallelism_context.pp_enabled or self.pp_has_last_stage
@@ -349,6 +396,45 @@ class TrainingEngine(Configurable, torch.distributed.checkpoint.stateful.Statefu
             f"Model {type(self.model_config).__qualname__} size: "
             f"{self.model_param_count:,} total parameters"
         )
+
+    def _prepare_training_runtimes(self) -> None:
+        """Build configured runtimes and compose their PP forward contexts."""
+        pp_schedule = self.pp_schedule if self.parallelism_context.pp_enabled else None
+        runtime_schedule = (
+            None
+            if pp_schedule is None
+            else getattr(pp_schedule, "pipeline_schedule", pp_schedule)
+        )
+        liveness_schedule = (
+            None
+            if pp_schedule is None
+            else getattr(
+                pp_schedule,
+                "pipeline_liveness_schedule",
+                runtime_schedule,
+            )
+        )
+        for runtime_config in self.config.runtimes:
+            runtime = runtime_config.build(
+                trainer_config=self.config,
+                model_parts=self.model_parts,
+                parallelism_context=self.parallelism_context,
+                device=self.device,
+                pp_schedule=liveness_schedule,
+            )
+            self.runtimes.append(runtime)
+            self._runtime_stack.callback(runtime.close)
+
+        if runtime_schedule is not None and self.runtimes:
+            forward_context = _TrainingRuntimeForwardContext(self.runtimes)
+            for stage in runtime_schedule._stages:
+                handle = stage.register_forward_context(forward_context)
+                self._runtime_stack.callback(handle.remove)
+
+    def _close_training_runtimes(self) -> None:
+        """Release forward registrations and runtimes in reverse order."""
+        self._runtime_stack.close()
+        self.runtimes.clear()
 
     def _initialize_optimizer(self) -> None:
         """Construct optimizers, learning-rate schedulers and the weight EMA."""
@@ -738,5 +824,6 @@ class TrainingEngine(Configurable, torch.distributed.checkpoint.stateful.Statefu
         self.close_profiler()
         if not self.config.training.disable_cuda_graphs:
             cuda_graph_teardown()
+        self._close_training_runtimes()
         if hasattr(self, "checkpointer"):
             self.checkpointer.close()
