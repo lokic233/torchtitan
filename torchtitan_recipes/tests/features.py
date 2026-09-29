@@ -317,10 +317,18 @@ def muse_glimmer_debugmodel_fsdp2_pp2_deferred_gradient_reduction() -> Trainer.C
 
 def muse_glimmer_debugmodel_fsdp2_pp2_deferred_reduce_grad_wait() -> Trainer.Config:
     config = muse_glimmer_debugmodel_fsdp2_pp2_deferred_gradient_reduction()
+    config.debug.deterministic = True
+    config.debug.seed = 42
     config.parallelism.pipeline_parallel_schedule = "Interleaved1F1B"
     config.parallelism.pipeline_parallel_defer_reduce_grad_wait = True
     # Looped pipeline schedules do not support CUDA graphs yet.
     config.training.disable_cuda_graphs = True
+    return config
+
+
+def muse_glimmer_debugmodel_fsdp2_pp2_max_outstanding_sends() -> Trainer.Config:
+    config = muse_glimmer_debugmodel_fsdp2_pp2_deferred_reduce_grad_wait()
+    config.parallelism.pipeline_parallel_max_outstanding_sends = 2
     return config
 
 
