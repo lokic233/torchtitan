@@ -27,7 +27,7 @@ from torch.distributed.pipelining.schedules import (
 )
 
 from torchtitan.components.loss import ChunkedLossWrapper, LossFunction
-from torchtitan.config import TORCH_DTYPE_MAP, TrainingConfig
+from torchtitan.config import CompileConfig, TORCH_DTYPE_MAP, TrainingConfig
 from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.distributed import ParallelismContext
 from torchtitan.distributed.activation_checkpoint import ActivationCheckpointingConfig
@@ -77,6 +77,7 @@ def pipeline_llm(
     parallelism_context: ParallelismContext,
     training: TrainingConfig,
     parallelism: ParallelismConfig,
+    compile_config: CompileConfig | None,
     ac_config: ActivationCheckpointingConfig,
     dump_folder: str,
     device: torch.device,
@@ -142,6 +143,7 @@ def pipeline_llm(
             parallelism_context=parallelism_context,
             training=training,
             parallelism=parallelism,
+            compile_config=compile_config,
             ac_config=ac_config,
             dump_folder=dump_folder,
         )
